@@ -1,0 +1,224 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  displayName String 
+  userName    String   @unique
+  password    String
+  dateOfBirth DateTime 
+  avatar      String?
+  isOnline    Boolean  @default(false)
+  lastSeen    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt 
+  role        UserRole @default(user)
+  
+  // Chat relationships
+  ownedChatRooms    ChatRoom[] @relation("ChatRoomOwner")
+  memberChatRooms   ChatRoomMember[]
+  moderatorChatRooms ChatRoomModerator[]
+  
+  // Contact relationships
+  ownedContacts     Contact[] @relation("ContactOwner")
+  contactedBy       Contact[] @relation("ContactUser")
+  
+  // Message relationships
+  sentMessages      Message[]
+  
+  // Conversation relationships
+  conversationMembers ConversationMember[]
+  
+  @@map("users")
+}
+
+
+model ChatRoom {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  avatar      String?
+  isPrivate   Boolean  @default(false)
+  maxMembers  Int?     @default(1000)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Owner relationship
+  ownerId     String
+  owner       User     @relation("ChatRoomOwner", fields: [ownerId], references: [id])
+  
+  // Members and moderators
+  members     ChatRoomMember[]
+  moderators  ChatRoomModerator[]
+  
+  // Messages
+  messages    Message[]
+  
+  @@map("chat_rooms")
+}
+// Many-to-many relationship for chat room members
+model ChatRoomMember {
+  id         String   @id @default(cuid())
+  userId     String
+  chatRoomId String
+  joinedAt   DateTime @default(now())
+  nickname   String?  // Custom nickname in this room
+  
+  user       User     @relation(fields: [userId], references: [id])
+  chatRoom   ChatRoom @relation(fields: [chatRoomId], references: [id])
+  
+  @@unique([userId, chatRoomId])
+  @@map("chat_room_members")
+}
+
+// Many-to-many relationship for chat room moderators
+model ChatRoomModerator {
+  id         String   @id @default(cuid())
+  userId     String
+  chatRoomId String
+  assignedAt DateTime @default(now())
+  permissions String[] // List of permissions
+  
+  user       User     @relation(fields: [userId], references: [id])
+  chatRoom   ChatRoom @relation(fields: [chatRoomId], references: [id])
+  
+  @@unique([userId, chatRoomId])
+  @@map("chat_room_moderators")
+}
+//fields = khóa ngoại, references => khóa chính của bảng bên kia (user)
+// Contact model (friends list)
+model Contact {
+  id        String      @id @default(cuid())
+  ownerId   String
+  contactId String
+  nickname  String?     // Custom name for contact
+  status    ContactStatus @default(pending)
+  blocked   Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  
+  owner     User        @relation("ContactOwner", fields: [ownerId], references: [id])
+  contact   User        @relation("ContactUser", fields: [contactId], references: [id])
+  
+  @@unique([ownerId, contactId])
+  @@map("contacts")
+}
+
+
+// Conversation model (for direct messages and small groups)
+model Conversation {
+  id        String   @id @default(cuid())
+  name      String?  // For group conversations
+  isGroup   Boolean  @default(false)
+  avatar    String?  // For group conversations
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  members   ConversationMember[]
+  messages  Message[]
+  
+  @@map("conversations")
+}
+// Many-to-many relationship for conversation members
+model ConversationMember {
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String
+  joinedAt       DateTime @default(now())
+  lastReadAt     DateTime?
+  isAdmin        Boolean  @default(false) // For group conversations
+  
+  user           User         @relation(fields: [userId], references: [id])
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  
+  @@unique([userId, conversationId])
+  @@map("conversation_members")
+}
+
+// Message model
+model Message {
+  id             String      @id @default(cuid())
+  content        String
+  messageType    MessageType @default(text)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  edited         Boolean     @default(false)
+  editedAt       DateTime?
+  
+  // Sender
+  senderId       String
+  sender         User        @relation(fields: [senderId], references: [id])
+  
+  // Can belong to either ChatRoom or Conversation
+  chatRoomId     String?
+  chatRoom       ChatRoom?   @relation(fields: [chatRoomId], references: [id])
+  
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  
+  // Reply to another message
+  replyToId      String?
+  replyTo        Message?    @relation("MessageReply", fields: [replyToId], references: [id])
+  replies        Message[]   @relation("MessageReply")
+  
+  // File attachments
+  attachments    MessageAttachment[]
+  
+  @@map("messages")
+}
+// Message attachments (files, images, etc.)
+model MessageAttachment {
+  id        String          @id @default(cuid())
+  messageId String
+  fileName  String
+  fileUrl   String
+  fileSize  Int
+  fileType  AttachmentType
+  createdAt DateTime        @default(now())
+  
+  message   Message         @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  
+  @@map("message_attachments")
+}
+// Enums
+enum UserRole {
+  user
+  admin
+  moderator
+}
+
+enum ContactStatus {
+  pending
+  accepted
+  declined
+  blocked
+}
+
+enum MessageType {
+  text
+  image
+  file
+  audio
+  video
+  system
+}
+
+enum AttachmentType {
+  image
+  video
+  audio
+  document
+  other
+}

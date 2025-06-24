@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
+import { email } from "zod/v4";
 
 const sql = postgres(process.env.POSTGRES_URL!, { ssl: "require" });
 const FormSchema = z.object({
@@ -114,19 +115,106 @@ export async function deleteInvoice(id: string) {
   await sql`DELETE FROM invoices WHERE id = ${id}`;
   revalidatePath("/dashboard/invoices");
 }
-export async function authenticate(
-  prevState: string | undefined,
+
+export type AuthState = {
+  message?: string | null;
+};
+
+const LoginSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  password: z.string().min(6, "Password have at least 6 characters"),
+});
+
+export async function authenticateLogin(
+  prevState: AuthState,
   formData: FormData
 ) {
   try {
+    const validatedFields = LoginSchema.safeParse({
+      email: formData.get("email"),
+      password: formData.get("password"),
+    });
+
+    if (!validatedFields.success) {
+      return {
+        errors: validatedFields.error.flatten().fieldErrors,
+        message: "Missing Fields. Faild to Update Invoice.",
+      };
+    }
     await signIn("credentials", formData);
+    return { message: "" };
   } catch (error) {
     if (error instanceof AuthError) {
       switch (error.type) {
         case "CredentialsSignin":
-          return "Invalid credentials.";
+          return { message: "Invalid credentials." };
+
         default:
-          return "Something went wrong.";
+          return {
+            message: "Something went wrong.",
+          };
+      }
+    }
+    throw error;
+  }
+}
+
+const RegisterForm = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  password: z
+    .string()
+    .min(6, { message: "Password must be at least 6 characters long" })
+    .max(18, { message: "Password must be at most 72 characters long" }),
+  displayName: z
+    .string()
+    .min(6, { message: "Uss must be at least 2 characters long" })
+    .max(18, { message: "Password must be at most 72 characters long" }),
+  userName: z
+    .string()
+    .min(6, { message: "Uss must be at least 6 characters long" })
+    .max(18, { message: "Password must be at most 32 characters long" }),
+  dateOfBirth: z.string().refine(
+    (val) => {
+      const dob = new Date(val);
+      const today = new Date();
+      const age = today.getFullYear() - dob.getFullYear();
+      const m = today.getMonth() - dob.getMonth();
+      return (
+        age > 13 || (age === 13 && m >= 0 && today.getDate() >= dob.getDate())
+      );
+    },
+    {
+      message: "You have to be at least 13 yearold to using this app",
+    }
+  ),
+});
+
+export async function authenticateRegister(
+  prevState: AuthState,
+  formData: FormData
+) {
+  try {
+    const validatedFields = LoginSchema.safeParse({
+      email: formData.get("email"),
+      password: formData.get("password"),
+    });
+    if (!validatedFields.success) {
+      return {
+        errors: validatedFields.error.flatten().fieldErrors,
+        message: "Missing Fields. Faild to Update Invoice.",
+      };
+    }
+    await signIn("credentials", formData);
+    return { message: "" };
+  } catch (error) {
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case "CredentialsSignin":
+          return { message: "Invalid credentials." };
+        default:
+          return {
+            message: "Something went wrong.",
+          };
       }
     }
     throw error;
